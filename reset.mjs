@@ -3,16 +3,23 @@ import { Client } from "@notionhq/client";
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
 const databaseId = process.env.NOTION_DATABASE_ID;
 
-// 페이지를 전부 가져오기 (pagination 처리)
-async function getAllPagesFromDatabase(dbId) {
+if (!databaseId) throw new Error("NOTION_DATABASE_ID missing");
+
+// 그룹 값(midnight / five)으로 필터링해서, '완료'를 false로 초기화
+async function resetByGroup(groupName) {
   const pages = [];
   let cursor = undefined;
 
+  // pagination 처리
   while (true) {
     const res = await notion.databases.query({
-      database_id: dbId,
+      database_id: databaseId,
       start_cursor: cursor,
       page_size: 100,
+      filter: {
+        property: "그룹",
+        select: { equals: groupName },
+      },
     });
 
     pages.push(...res.results);
@@ -20,40 +27,24 @@ async function getAllPagesFromDatabase(dbId) {
     cursor = res.next_cursor;
   }
 
-  return pages;
-}
-
-async function resetCheckboxes(propertyNames) {
-  if (!databaseId) throw new Error("NOTION_DATABASE_ID missing");
-  const pages = await getAllPagesFromDatabase(databaseId);
-
   for (const page of pages) {
-    const properties = {};
-    for (const name of propertyNames) {
-      properties[name] = { checkbox: false };
-    }
-
     await notion.pages.update({
       page_id: page.id,
-      properties,
+      properties: {
+        "완료": { checkbox: false },
+      },
     });
   }
 
-  console.log(`Reset done. pages=${pages.length}, props=${propertyNames.join(",")}`);
+  console.log(`Reset group: ${groupName}, count=${pages.length}`);
 }
 
-// 실행 인자: midnight | five
 const mode = process.argv[2];
 
 if (mode === "midnight") {
-  // 00:00 초기화용 (9개)
-  await resetCheckboxes([
-    "check1","check2","check3","check4","check5",
-    "check6","check7","check8","check9"
-  ]);
+  await resetByGroup("midnight");
 } else if (mode === "five") {
-  // 05:00 초기화용 (2개)
-  await resetCheckboxes(["check10","check11"]);
+  await resetByGroup("five");
 } else {
-  throw new Error('Usage: node reset.mjs [midnight|five]');
+  throw new Error("Usage: node reset.mjs [midnight|five]");
 }
